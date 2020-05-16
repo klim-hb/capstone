@@ -20,6 +20,6 @@ with the validation dataset. Furthermore, the validation dataset was only used o
 Linear model.
 
 **Files attached to this report:**
-* RMD script
-* R script
+* [RMD script](https://github.com/klim-hb/capstone/blob/master/MovieLens.RMD)
+* [R script](https://github.com/klim-hb/capstone/blob/master/MovieLens.R)
 * PDF report - can aslo be acessed via [this link](http://34.76.208.154/files/Capstone/MovieLens.pdf)
