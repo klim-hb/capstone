@@ -22,4 +22,4 @@ Linear model.
 **Files attached to this report:**
 * [RMD script](https://github.com/klim-hb/capstone/blob/master/MovieLens.RMD)
 * [R script](https://github.com/klim-hb/capstone/blob/master/MovieLens.R)
-* PDF report - can aslo be acessed via [this link](http://34.76.208.154/files/Capstone/MovieLens.pdf)
+* [PDF report](https://github.com/klim-hb/capstone/blob/master/MovieLens.pdf) - can aslo be acessed on the Google Cloud Platform's [server](http://34.76.208.154/files/Capstone/MovieLens.pdf), which was used to execute this project
