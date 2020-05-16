@@ -1,0 +1,1075 @@
+---
+title: "MovieLens Project Report - Capstone 1"
+author: "Klim Popov"
+date: "5/16/2020"
+output: pdf_document
+linkcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Abstract
+
+This project aims to analyze the provided MovieLens dataset and to compare various types of approaches for a recommendation system, as well as various reasons for the limitation of such analysis.
+
+This paper consists of the following parts:
+
+[Overview](#overview-of-the-project) section describes the dataset and summarizes the goal of the project and key steps that were performed;
+
+[Methods](#methods) section explains the process and techniques used, including data cleaning, data exploration and visualization, insights gained, and modeling approach;
+
+[Results](#results) section that presents the modeling results and discusses the model performance for the Linear Model and Factorization Model;
+
+[Validation](#validation-and-final-results) section provides insight on results of validation for Linear Model;
+
+[Conclusion](#conclusion) section that gives a summary of the report, the limitations and future research.
+
+
+Key findings (RMSE): 
+
+The paper used various methods of data analysis to find the optimal RMSE value. Upon concluding the analysis, the best RMSE result for Linear Model was achieved at **0.8648177** and **0.786** for the factorization method by *recosystem*. As part of the course requirement, only the Linear model was examined with the validation dataset. Furthermore, the validation dataset was only used once at the final point of the Linear model. 
+
+
+Files attached to this report:
+
+* *RMD script*
+* *R script*
+
+
+\newpage
+
+# Overview of the project
+
+## Project Goal
+
+The main goal of this project is to examine various methods used in Data Science to implement simple models for recommendation systems. The project requirements were specified by the EdX team as follows: 
+
+- The submission for the MovieLens project will be three files: a report in the form of an Rmd file, a report in the form of PDF document knit from Rmd file, and an R script that generates predicted movie ratings and calculates RMSE. All three files require to be submitted in the requested formats. 
+- The report should include all required sections (Introduction, Methods, Results, Conclusion), it should be easy to follow with good supporting detail throughout, and be insightful and innovative. 
+- Code should be easy to follow, consistent with the report, and well-commented 
+- The final RMSE value should be less than  0.86490 
+- It is not allowed to use the validation set for training or regularization, and the validation set should only be applied to the final RMSE. 
+
+In order to follow the requirements of this project, we will utilize the following resources, libraries, and functions:
+
+## Libraries and Environment
+
+The specifications of the R Studio session and libraries used in the report can be found [here](#session-info). In this project, we utilized R Server run on Google Cloud Platform. 
+
+The reasons for choice for R Server are manifold. During the initial setup of the project, it has been realized that computing resources of the machine where initially the code was used are not nearly enough to create a sustainable environment for the project, precisely due to numerous downtime events caused by the inability of the computer to handle big data queries. Many options to resolve this issue were discovered and tested: 
+
+a) changing the memory size limit for R Studio on the local machine,
+b) obtaining an account with shinyApp and RStudio.cloud, 
+c) installing the R Studio server via WHM on Cent OS, 
+d) obtaining a separate droplet through DigitalOcean service and 
+e) obtaining a service from Google Cloud Platform (GCP) to host R Studio Server and this project.
+
+While a) did not improve the performance of the local machine, b) was not able to handle the amount of data processed (without purchasing additional space on the platform), c) option did not succeed due to server limitations which we had access to, d) option had, unfortunately, not authorized the account immediately after registration and paused the activity of the project. Finally, the discovery was made with GCP, which offered a free credit of USD 300 with the sign-up. The R Studio Server was set up on dedicated [IP](34.76.208.154) and showed tremendous improvement in the performance of this project code. 
+
+The server required additional installations in order to produce this report: all required libraries, TinyTeX. Due to time constrain, it was decided not to install/experiment with additional fonts for the server to optimize the current report visual identity; please accept our apologies for this shortcoming.   
+
+
+## EDX and Validation sets
+
+The project requires to preload data from MovieLens and distribute it to the edx and validation sets. The code can be seen from the .R/RMD files submitted with this report or by enrolling in the [course on EdX platform](https://www.edx.org/course/data-science-capstone). The provided code was changed slightly to adjust to the performance of R Studio version (R Studio Server) as follows:
+
+> movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(movieId)(removed the following: [movieId]),
+
+This was required as otherwise, the factors produced NAs in movieID and genres. A glance look online on the same issues suggested changing server settings, however, after confirmation that the data was not in any way affected (random checks of several users and ratings was made to ensure the data was not compromised), the decision was made to keep the change and proceed with the analysis. Additionally, during the initial stage of the project on the local machine, the data was also backed-up and exported to .csv format, but this action was not used in the final project production, as the issue with big data handling was solved by utilizing the GCP.     
+
+the *edx* set was split into two parts: train (90%) and test (10%) sets as a requirement for RMSE to be validated only on *validation* set. We will explore this step in detail later in this report.  
+
+```{r EDX_code, include=FALSE, echo=FALSE}
+################################
+# Create edx set, validation set
+################################
+
+# Note: this process could take a couple of minutes
+
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+
+# MovieLens 10M dataset:
+ # https://grouplens.org/datasets/movielens/10m/
+ # http://files.grouplens.org/datasets/movielens/ml-10m.zip
+
+dl <- tempfile()
+ download.file("http://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+
+ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings.dat"))),
+                 col.names = c("userId", "movieId", "rating", "timestamp"))
+
+movies <- str_split_fixed(readLines(unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
+ colnames(movies) <- c("movieId", "title", "genres")
+
+ ## the following line was changed from 
+ ##    movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(movieId)[movieID],
+ ## in order to ensure no NAs are in movie ID and genres for this dataset. 
+ ## we randomly checked several records and it appears that data was not compromised.
+ movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(movieId),
+                                            title = as.character(title),
+                                            genres = as.character(genres))
+
+movielens <- left_join(ratings, movies, by = "movieId")
+
+# Validation set will be 10% of MovieLens data
+set.seed(1, sample.kind="Rounding")
+# if using R 3.5 or earlier, use `set.seed(1)` instead
+test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
+ edx <- movielens[-test_index,]
+ temp <- movielens[test_index,]
+
+# Make sure userId and movieId in validation set are also in edx set
+validation <- temp %>% 
+      semi_join(edx, by = "movieId") %>%
+      semi_join(edx, by = "userId")
+
+# Add rows removed from validation set back into edx set
+removed <- anti_join(temp, validation)
+ edx <- rbind(edx, removed)
+
+rm(dl, ratings, movies, test_index, temp, movielens, removed)
+
+# UPDATE: the below is no longer appicable after moving to GCP:
+# The original EDX code for forming the datasets EDX and VALIDATION was changed due to limitation of computing resources (the R Studio and entire PC was hanging for days hence it was not possible to perform the analysis). Instead, the process was divided into 2 parts: forming the datasets as per EDX instructrions and the analysis itself. 
+# The files for datasets were saved separetely as csv documents and imported back to perform the analysis
+
+#edx <- read_csv("edx.csv", col_types = cols(movieId = col_integer(), timestamp = col_integer(), userId = col_integer()), trim_ws = FALSE)
+
+#validation <- read_csv("validation.csv", col_types = cols(movieId = col_integer(), timestamp = col_integer(), userId = col_integer()), trim_ws = FALSE)
+
+
+#installation of TinyTeX in R (was required on the first attemp to create PDF: tinytex::install_tinytex()
+
+# Note on how to display greek formulas in RMD - https://www.calvin.edu/~rpruim/courses/m343/F12/RStudio/LatexExamples.html
+``` 
+
+
+```{r Libraries, include=FALSE, echo=FALSE}
+# Loading libraries
+library(dplyr) #data wrangling
+library(tidyverse)
+library(kableExtra) #very useful package to change the style of output tables 
+library(knitr)
+library(tidyr)
+library(stringr)
+library(ggplot2)
+library(recosystem) #package for recommendation system; used as second method in this report
+library(tinytex) #to enable LaTeX
+#library(readr) - on early stage of the project, to export data from MovieLens to csv files
+#tinytex::install_tinytex()
+```
+
+## RMSE
+
+In this project, we used RMSE (Root Mean Squared Error) function described in the [textbook](https://rafalab.github.io/dsbook/large-datasets.html#netflix-loss-function). 
+
+> In this section, we describe how the general approach to defining “best” in machine learning is to define a loss function, which can be applied to both categorical and continuous data.The most commonly used loss function is the squared loss function...The Netflix challenge used the typical error loss: they decided on a winner based on the residual mean squared error (RMSE) on a test set...
+
+We calculate RMSE as the formula below:
+
+
+ $$\mbox{RMSE} = \sqrt{\frac{1}{n}\sum_{t=1}^{n}e_t^2}$$
+
+In our code, we will define RMSE as: 
+```{r RMSEF, include=TRUE, echo=TRUE}
+# The RMSE function in R code:
+RMSE <- function(true_ratings = NULL, predicted_ratings = NULL) {
+    sqrt(mean((true_ratings - predicted_ratings)^2))
+}
+```   
+
+## Regularization
+
+We will use Regularization concept to "tune" our linear model, as described in the [textbook](https://rafalab.github.io/dsbook/large-datasets.html#penalized-least-squares):
+
+> Regularization permits us to penalize large estimates that are formed using small sample sizes. It has commonalities with the Bayesian approach that shrunk predictions... The general idea behind regularization is to constrain the total variability of the effect sizes.
+
+To do that, we will define the following function with the tuning parameters $\lambda$ to be examined later in the project: 
+
+```{r RegularF, include=TRUE, echo=TRUE}
+regularization <- function(lambda, trainset, testset){
+
+  # Mean
+  mu <- mean(trainset$rating)
+
+  # Movie effect (bi)
+  b_i <- trainset %>% 
+    group_by(movieId) %>%
+    summarize(b_i = sum(rating - mu)/(n()+lambda))
+
+  # User effect (bu)  
+  b_u <- trainset %>% 
+    left_join(b_i, by="movieId") %>%
+    filter(!is.na(b_i)) %>%
+    group_by(userId) %>%
+    summarize(b_u = sum(rating - b_i - mu)/(n()+lambda))
+
+  # Prediction: mu + bi + bu  
+  predicted_ratings <- testset %>% 
+    left_join(b_i, by = "movieId") %>%
+    left_join(b_u, by = "userId") %>%
+    filter(!is.na(b_i), !is.na(b_u)) %>%
+    mutate(pred = mu + b_i + b_u) %>%
+    pull(pred)
+  
+  return(RMSE(predicted_ratings, testset$rating))
+}
+``` 
+
+## Recosystem
+
+There are different utilities and libraries available in R packages for testing and training the recommendation systems. In particular, recommenderlab and recosystem proved to be most efficient. 
+
+In this project we will utilize recosystem, as it is intuitively more clear and uses simple syntax. 
+
+recosystem is an R wrapper of the [LIBMF library](http://www.csie.ntu.edu.tw/~cjlin/libmf/) developed by [Yu-Chin Juan, Yong Zhuang, Wei-Sheng Chin and Chih-Jen Lin](http://www.csie.ntu.edu.tw/~cjlin/libmf/), an open source library for recommender system using marix factorization.
+
+> The main task of recommender system is to predict unknown entries in the rating matrix based on observed values.
+> Each cell with number in it is the rating given by some user on a specific item, while those marked with question marks are unknown ratings that need to be predicted. In some other literatures, this problem may be given other names, e.g. collaborative filtering, matrix completion, matrix recovery, etc.
+> Highlights of LIBMF and recosystem
+LIBMF itself is a parallelized library, meaning that users can take advantage of multicore CPUs to speed up the computation. It also utilizes some advanced CPU features to further improve the performance. [@LIBMF]
+> recosystem is a wrapper of LIBMF, hence the features of LIBMF are all included in recosystem. Also, unlike most other R packages for statistical modeling which store the whole dataset and model object in memory, LIBMF (and hence recosystem) is much hard-disk-based, for instance the constructed model which contains information for prediction can be stored in the hard disk, and prediction result can also be directly written into a file rather than kept in memory. That is to say, recosystem will have a comparatively small memory usage.
+
+We will use this library as our second method for the project. 
+
+## Steps of this project
+
+The project will be performed in the following steps:
+
+1. We will analyze the provided data 
+2. We will preprocess the provided data and split edx into two parts
+3. We will build two methods for our task: Linear Model (via RMSE and regularization) & Factorization Model (via recosystem)
+4. We will test Linear Model against Final Validation (as a requirement of the project, the validation set could only be used once; since the aim of the project is to practice Linear Model - we will only utilize it with the LM itself.)
+5. We will record and analyze the results 
+6. We will conclude the discussion on both methods used with observed limitations and recommendations for future research.
+
+\newpage
+
+# Exploratory Data Analysis
+
+## Initial Datasets
+
+We will start our analysis with the overview of available datasets generated for this report: *edx* and *validation*. The datasets have the following characteristics:
+
+```{r InitialData, include=TRUE, echo=FALSE}
+#this commented step was removed as the problem with big data processing was solved:
+#exporting initial data in case R studio crashes again
+#this code was commented in the final version
+#write.csv(edx, "edxInitial.csv", row.names=F)
+#write.csv(validation, "validationInitial.csv", row.names=F)
+
+#Utilizing kable and kableExtra packages to format the tables for our pdf report as described here: https://cran.r-project.org/web/packages/kableExtra/vignettes/awesome_table_in_html.html
+#Unfortunately, in the final pdf it does not look as neat :( 
+
+#create a dataframe to display the basic info about both sets 
+text_tbl <- data.frame(
+  Feature = c("Number of Rows", "Number of Columns", "Unique Users","Unique Movies","Variety of Genres"),
+  EDX = c(nrow(edx), ncol(edx),n_distinct(edx$userId),n_distinct(edx$movieId),n_distinct(edx$genres)), 
+  Validation = c(nrow(validation), ncol(validation),n_distinct(validation$userId),n_distinct(validation$movieId),n_distinct(validation$genres)))
+
+#display the dataframe with kable package, making the first row background red, font color - white and bold; 
+#only first column to be also bold in values for display purposes. 
+kable(text_tbl) %>%
+  kable_styling(full_width = F) %>%
+  column_spec(1, bold = T) %>%
+  column_spec(2, bold=F) %>%
+  column_spec(3, bold=F) %>%  row_spec(0, bold = T, color = "white", background = "#D7261E")
+
+```
+
+The dataset *validation* was generated as a sample of *edx* dataset and comprised of almost a million observations, whereas *edx* has almost 10M records. The validation dataset will be used in our analysis as a final measure to identify the RSME on the latest model. The datasets have the following columns:
+
+```{r NeatOutpoot, include=TRUE, echo=FALSE}
+#Same as previous text_tbl - make the output neat. 
+
+text_tbl1 <- data.frame(
+  Name = c(names(edx)),
+  Comment = c("Unique identification number for each user in the dataset","Unique identification number for each movie in the dataset","A range of marks(rating) given to a movie by specific user","A record of specific time when the rating was given by the user to a particular movie","Title of the movie with Release date","Genre(s) of the movie"))
+
+kable(text_tbl1) %>%
+  kable_styling(full_width = F) %>%
+  column_spec(1, bold =T) %>%
+  column_spec(2, bold=F) %>%
+  row_spec(0, bold = T, color = "white", background = "#D7261E")
+```
+
+
+The data in both datasets appears to be not tidy enough to start our analysis. The below first seven records from the *edx* dataset demonstrate that the data structure needs to be changed: 
+
+
+```{r headEDX, include=TRUE, echo=FALSE}
+edx %>% head() %>% kable() %>%
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive"),
+                position = "center",
+                font_size = 7,
+                full_width = FALSE) %>%
+  row_spec(0, bold = T, color = "white", background = "#D7261E")
+```
+
+Specifically, for the following observations:
+
+* timestamp - the format currently displays the number of second since Jan 1, 1970 (EPOCH) and is hard to understand 
+* title - Movies' titles have the year of their release, this data might be helpful in our analysis 
+* genres - column consists of a variety of genres divided with |-sign; it might be useful to segregate the genres for our analysis
+
+
+Hence, prior to starting any analysis of the data, the dataset must be put in order. 
+
+\newpage
+
+# Methods
+
+
+## Preprocessing of the data
+
+We will perform preprocessing of our data in accordance with recommendations set in the [textbook](https://rafalab.github.io/dsbook/machine-learning-in-practice.html#preprocessing) and will try to keep the data as tidy as possible. 
+
+> In machine learning, we often transform predictors before running the machine algorithm. We also remove predictors that are clearly not useful. We call these steps preprocessing. Examples of preprocessing include standardizing the predictors, taking the log transform of some predictors, removing predictors that are highly correlated with others, and removing predictors with very few non-unique values or close to zero variation. 
+
+In addition, we will analyse if any variables need to be changed for our analysis.
+
+When we attempted to start with the *colSds* and *nearZero* function from the caret package to see if any features do not vary much from observation to observation, as recommended for data preprocessing, we realized that all columns in the dataset are required for our analysis, hence, there is no need to perform this function. Some rows can be eliminated (for example, 2009 data is very limited), but for the sake of order, we will proceed.  
+
+```{r Preprocessing, include=FALSE, echo=FALSE}
+#Preprocessing
+#Please refer to the textbook section for a detailed explanation of colSds and nearZeroVar()
+#library(matrixStats)
+#sds <- colSds(edx$genres) #does not work with character vectors
+#qplot(sds, bins = 256)
+#no point to use because we need all columns and they were pre-selected by EDX team
+#Also described here: https://topepo.github.io/caret/pre-processing.html - the type of data is really not appropriate for our purpose, we shall skipp this step and preprocess "manually"
+```
+
+In order to be consistent in the course of our analysis, ideally, we require to make adjustments to both datasets, *edx* and *validation*. However, since the requirement of the project not to touch the validation set until the last model - we will **only** apply changes to *edx*
+
+We will undergo several steps to optimize the dataset. We will start by converting the *timestamp* values into Year-Month-Day format from the current EPOCH. We will then display the values of year, month and day separately in order to investigate and visualize the data. 
+
+```{r TimeStamp, include=FALSE, echo=FALSE}
+# Convert timestamp of each rating to a proper format in EDX dataset
+edx$date <- as.POSIXct(edx$timestamp, origin="1970-01-01")
+# As discussed on EDX forum - we cannot change validation dataset until last RMSE function is done. This is actually a great news, since we want to keep the Global Enviroment clean 
+# Convert timestamp of each rating to a proper format in validation dataset
+#validation$date <- as.POSIXct(validation$timestamp, origin="1970-01-01")
+```
+```{r TimeStampEDX, include=FALSE, echo=FALSE}
+# Separate the date of each rating in EDX dataset and change the format of displayed year/month/day. We want to split it because we want to dig deep into patterns between the user behavior
+edx$yearR <- format(edx$date,"%Y")
+edx$monthR <- format(edx$date,"%m")
+edx$dayR <- format(edx$date,"%d")
+```
+```{r TimeStampEDXFinal, include=FALSE, echo=FALSE}
+# Ensure the timedate data recorded as numeric in EDX dataset
+edx$yearR <- as.numeric(edx$yearR)
+edx$monthR <- as.numeric(edx$monthR)
+edx$dayR <- as.numeric(edx$dayR)
+```
+Since we noticed, that movie titles contain their respective release dates, we will extract that information too. It will help us to identify the trend for user ratings. 
+
+```{r ReleaseYearEDX, include=FALSE, echo=FALSE}
+# Extracting the release year for each movie in edx dataset
+edx <- edx %>%
+   mutate(title = str_trim(title)) %>%
+   extract(title,
+           c("titleTemp", "release"),
+           regex = "^(.*) \\(([0-9 \\-]*)\\)$",
+           remove = F) %>%
+   mutate(release = if_else(str_length(release) > 4,
+                                as.integer(str_split(release, "-",
+                                                     simplify = T)[1]),
+                                as.integer(release))
+   ) %>%
+   mutate(title = if_else(is.na(titleTemp),
+                          title,
+                          titleTemp)
+         ) %>%
+  select(-titleTemp)
+
+```
+
+As currently the dataset contains a combination of genres for each movie and we assume, that this information is essential to us, there are several ways to reassemble the data: a) split the genres for distinctive values as additional rows in the dataset or b) add additional columns for each respective genre and ensure that each movie has a TRUE/FALSE value for the respective genre. 
+
+The first approach will significantly increase the number of rows in our dataset, as each distinctive movie typically has few genres. This will lead to the crash of the R Studio due to computing limitations of the used hardware. It is also not wise to misuse the resources unless necessary. The second approach might limit our ability to calculate the RMSE correctly, as additional variables-genres will be introduced. The data is not very continuous; hence there is a high probability it won't provide us any additional leverage.    
+
+An alternative solution to the above is to consider genre variability as an extension of the movie specification and treat each particular combination of genres as a unique category.  
+
+As reported by several peers in the EDX forum, the genre specificity might have a low impact on the total RMSE, and hence at this stage of the project, in order to not overwhelm the environment, we will consider the alternative solution. Once the calculations for RMSE models are made, we might reconsider this step, if the RMSE values will not meet the required low values.
+
+Regardless of this, we will still attempt to examine the data. In the meanwhile, we will keep only the columns which we require for our analysis.
+
+```{r EDXKeep, include=FALSE, echo=FALSE}
+# only keeping what we need for EDX without any temp columns
+edx <- edx %>% select(userId, movieId, rating, title, genres, release, yearR, monthR, dayR)
+```
+After applying the above changes, the datasets have the following structure:
+```{r EDXHeadNew, include=TRUE, echo=FALSE}
+edx %>% head() %>% kable() %>%
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive"),
+                position = "center",
+                font_size = 7,
+                full_width = FALSE) %>%
+  row_spec(0, bold = T, color = "white", background = "#D7261E")
+```
+
+Notably, it is also important to use the provided *validation* set only on the final model, therefore we will create additional datasets from *edx* to train and test the models before the final *validation* is used. We will apply the same settings as the initial split.
+
+As part of trial/error, we examined that if % of allocated data for training and test sets varies, the final RMSE also varies. We examined 20% and 25% split, both of which gave higher RMSE. This can be explained due to the sampling method or odd behavior of the first machine utilized in this project. 
+
+```{r splitData, include=FALSE, echo=FALSE}
+## Arrange edx as training and test datasets as 90/10%
+set.seed(1, sample.kind="Rounding")
+# if using R 3.5 or earlier, use `set.seed(1)` instead
+test_index <- createDataPartition(y = edx$rating, p=0.1, list = FALSE)
+trainSet <- edx[-test_index,]
+temp <- edx[test_index,]
+# Make sure userId and movieId in validation set are also in edx set
+testSet <- temp %>% 
+  semi_join(trainSet, by = "movieId") %>%
+  semi_join(trainSet, by = "userId")
+# Add rows removed from validation set back into edx set
+removed <- anti_join(temp, testSet)
+trainSet <- rbind(trainSet, removed)
+rm(test_index, temp, removed)
+```
+
+Now we are in possessions of 3 datasets as follows:
+```{r ThreeDataSets, include=TRUE, echo=FALSE}
+text_tbl2 <- data.frame(
+  Feature = c("Number of Rows", "Number of Columns", "Unique Users","Unique Movies","Variety of Genres"),
+  Train = c(nrow(trainSet), ncol(trainSet),n_distinct(trainSet$userId),n_distinct(trainSet$movieId),n_distinct(trainSet$genres)), 
+  Test = c(nrow(testSet), ncol(testSet),n_distinct(testSet$userId),n_distinct(testSet$movieId),n_distinct(testSet$genres)), 
+  Validation = c(nrow(validation), ncol(validation),n_distinct(validation$userId),n_distinct(validation$movieId),n_distinct(validation$genres)))
+
+kable(text_tbl2) %>%
+  kable_styling(full_width = F) %>%
+  column_spec(1, bold = T) %>%
+  column_spec(2, bold=F) %>%
+  column_spec(3, bold=F) %>%  
+  column_spec(4, bold=F) %>% row_spec(0, bold = T, color = "white", background = "#D7261E")
+```
+
+We can now explore data in our train dataset.
+
+
+## Dataset analysis
+
+The train dataset comprises around 7.2M rows and 9 columns. Strategically, we need to understand how the data is distributed in order to utilize RMSE. The reason why we are examinig trainSet instead of EDX is because trainSet is a randomply generated sample of 90% of the EDX data - hence it is reliable to represent the patterns of data distribution. 
+
+### Ratings Distribution
+
+We will start our analysis with demonstrating a heatmap for a sample of hundred Users and Movies:
+
+```{r Heatmap, fig.width=5, fig.height=4, include=TRUE, echo=FALSE, message=FALSE, fig.align="center"}
+usersHM <- sample(unique(trainSet$userId), 100)
+trainSet %>% filter(userId %in% usersHM) %>%
+  select(userId, movieId, rating) %>%
+  mutate(rating = 1) %>%
+  spread(movieId, rating) %>% 
+  select(sample(ncol(.), 100)) %>% 
+  as.matrix() %>% t(.) %>%
+  image(1:100, 1:100,. , xlab="Movies", ylab="Users")
+abline(h=0:100+0.5, v=0:100+0.5, col = "grey")
+title("User and Movie Matrix")
+```
+
+This gives us an idea how data is spreaded across the dataset.
+
+```{r PlotOnRat, fig.width=4, fig.height=3, include=TRUE, echo=FALSE, message=FALSE, fig.align="center"}
+# create plot to show rating distribution across values(0.5-5)
+trainSet %>%
+	group_by(rating) %>%
+	summarize(count = n()/1000) %>%
+	ggplot(aes(x = rating, y = count)) +
+	geom_line() + xlab("Rating 0.5-5") + ylab("# Ratings, thousands") +ggtitle("Distribution of Ratings")
+
+
+```
+
+The distribution of ratings varies from user to user, movie to movie, year to year.
+
+```{r clean, include=FALSE, echo=FALSE}
+# let's clean the global enviroment, as we can see some smoke coming from the computer - partly solved with gooogle server, but let's still keep the enviroment clean
+rm(text_tbl, text_tbl1, text_tbl2, chkEdx)
+
+# count how many whole star ratings in the dataset
+a<-sum(trainSet$rating %% 1 == 0)/length(trainSet$rating)
+b<-mean(trainSet$rating)
+```
+
+In general, half star ratings are less common than whole star ratings. In the *trainSet* we can count over 79% of whole star ratings across all users. At the same time, the avarage ratings across the dataset is 3.5.
+
+```{r RatDistrYearsR, fig.width=7, fig.height=4, include=TRUE, echo=FALSE, warning=FALSE, message=FALSE, fig.align="center"}
+# show rating distribution over years; Im assigning to ratdistY because otherwise shows warning for geom_path
+trainSet %>%
+	group_by(yearR,rating) %>%
+	summarize(count = n()/1000) %>%
+	ggplot(aes(x = rating, y = count)) +
+	geom_line() + xlab("Rating scale") + ylab("# Ratings, thousands") +ggtitle("Distribution of Ratings over Years")+facet_wrap(~yearR, nrow=3) + theme(axis.text.x=element_text(size=7, vjust=0.5))
+
+```
+
+Over the years, the trends of the rating distribution also change. If we are not taking into the account year 1995 and 2009 (as there is not enough data to compare it with other years), we can notice that in 1996, 2000 the users were very active (the majority of ratings corresponded to 3 and 4 respectively), but in 1998, the users were not active at all (hence no sharp edges over the ratings). 2001, 2004-2008 demonstrate to us how users were active, almost identically. In a real-life scenario, it might be very uncommon to see such a big range of diversity and commonality in the same dataset. This could be explained by the origin of data (the data was compromised), sampling method (probability of mistake during the sampling of edx dataset), or actual triggers/influencers within those years on users (new platforms, development of the internet, the difference between new users and old users, the origin of users - as we do not have the data on demographics).    
+
+```{r DistrMonthR, fig.width=7, fig.height=4, include=TRUE, echo=FALSE, fig.align="center"}
+# show rating distribution over months over years
+trainSet %>%
+	group_by(yearR,monthR) %>%
+	summarize(count = n()/1000) %>%
+	ggplot(aes(x = monthR, y = count)) +
+  geom_point() +
+  scale_x_continuous(name="Months",breaks=seq(1,12,1),labels=c("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"))+
+  ylab("# Ratings, thousands") +ggtitle("Distribution of Ratings over Months") +facet_wrap(~yearR, nrow=3) + theme(axis.text.x=element_text(angle=90, size=7, vjust=0.5))
+```
+
+The frequency of users providing a rating for movies also varies month-to-month over the years. Notably, in 1999 we see the highest peak, whereas otherwise, from 2001 to 2008, the data changes only slightly month-to-month. Hypothetically, this could be caused by specific blockbuster movies to be released in those years (1996,1999,2000,2005), which show unregular behavior for the users. 
+
+```{r DistrDaysR, fig.width=7, fig.height=4, include=TRUE, echo=FALSE, fig.align="center"}
+# show rating distribution over days
+trainSet %>%
+	group_by(dayR, monthR) %>% #filter(yearR==1996) %>%
+	summarize(count = n()/1000) %>%
+	ggplot(aes(x = dayR, y = count)) +
+  geom_point() +
+  scale_x_continuous(name="Days",breaks=seq(1,31,1))+
+  theme(axis.text.x = element_text(size=7, angle=45))+
+  ylab("# Ratings, thousands") +ggtitle("Distribution of Ratings over Days for all Years") +facet_wrap(~monthR, nrow=3) + theme(axis.text.x=element_text(angle=90, size=7, vjust=1))
+```
+
+Over the years, we can identify several months and days where the number of ratings is significantly different: the second part of March, the second part of November. It appears that most profitable movies were released around these dates. 
+
+```{r ReleaseYears, fig.width=7, fig.height=4, include=TRUE, echo=FALSE, fig.align="center", message=FALSE}
+# show rating distribution over release years
+trainSet %>%
+	group_by(release,rating) %>%
+	summarize(count = n()/1000) %>%
+	ggplot(aes(x = release, y = count)) +
+	geom_line() + xlab("Year of Release") + ylab("# Ratings, thousands") +ggtitle("Distribution of Ratings over Release Years")+facet_wrap(~rating, nrow=2) + theme(axis.text.x=element_text(size=7, vjust=0.5))
+```
+
+As anticipated, the year of movie release also plays a role in the distribution of ratings. For instance, ratings of 3,4,5 were awarded more for movies released after 1990. We can see that in general, movies after 1990 receive more ratings.    
+
+```{r RatingOverYears, fig.width=7, fig.height=4, include=TRUE, echo=FALSE, message=FALSE, fig.align="center"}
+# show rating distribution over movies over years
+trainSet %>%
+	group_by(movieId, yearR) %>%
+	summarize(count = n()/1000) %>%
+	ggplot(aes(x = movieId, y = count)) +
+	geom_line() + xlab("Movie ID") + ylab("# Ratings, thousands") +ggtitle("Distribution of Ratings over Movies over Years")+facet_wrap(~yearR, nrow=3) + theme(axis.text.x=element_text(size=7, vjust=0.5))
+```
+
+Over the years, some movies received particularly high or low ratings. It might be important to compare this with the year of the movie release.
+
+```{r ReleasevsRatingPlot, fig.width=5, fig.height=4, include=TRUE, echo=FALSE, message=FALSE, fig.align="center"}
+
+#ReleaseRating Plot
+trainSet %>% group_by(release) %>%
+  summarize(rating = mean(rating)) %>%
+  ggplot(aes(release, rating)) +
+  geom_point() +
+  geom_smooth()
+
+```
+
+Users also tend to rate less movies which were released after 70s, A more detailed view:
+
+```{r OverMoviesOverYears, fig.width=8, fig.height=7, include=TRUE, echo=FALSE, message=FALSE, fig.align="center"}
+# show rating distribution over movies over years
+trainSet %>%
+	group_by(movieId, release) %>%
+	summarize(count = n()/1000) %>%
+	ggplot(aes(x = movieId, y = count)) +
+	geom_line() + xlab("Movie ID") + ylab("# Ratings, thousands") +ggtitle("Distribution of Ratings over Movies over Release Years")+facet_wrap(~release, nrow=7) + theme(axis.text.x=element_text(size=0, vjust=0.5))
+```
+
+Movie release year changes the behaviour of users to provide ratings. Older (1915) movies receive fewer ratings, followed by "classics" and movies from the 90s. The newest movies (00s) receive fewer ratings again.  
+
+
+To understand the data origin, we need to examine how users rated movies in the datasets.
+
+```{r RatingsUsers, fig.width=5, fig.height=4, include=TRUE, echo=FALSE, message=FALSE, fig.align="center"}
+
+trainSet %>% group_by(userId) %>%
+  summarise(count=n()) %>%
+  ggplot(aes(count)) +
+    geom_histogram(color = "white") +
+    scale_x_log10() + 
+    ggtitle("Distribution of Users") +
+    xlab("Number of Ratings") +
+    ylab("Number of Users") 
+
+```
+
+The distribution of users and their respective ratings appear to be slightly inconsistent - as anticipated by the user behavior. It is not possible to expect all users to rate the same amount of movies — few users rate few or over 1K titles. The majority lies within a hundred ratings per user. 
+
+Genres Variety: in the current datasets there are almost 800 different variety of genres as they are recorded as tags unqiue for each movie:
+
+```{r GenresVariety, fig.width=5, fig.height=4, include=TRUE, echo=FALSE, message=FALSE, fig.align="center"}
+
+trainSet %>% group_by(genres) %>% 
+  summarise(n=n()) %>%
+  head() %>% kable() %>%
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive"),
+                position = "center",
+                font_size = 10,
+                full_width = FALSE) %>%
+  row_spec(0, bold = T, color = "white", background = "#D7261E")
+
+```
+Genres, in fact, can be grouped - as we can see from the belowplot, there are similarities between the genres variety. This potentially can be used for our model, but since it is very resource-consuming, we will leave it for future research. 
+
+```{r GenresVarietyPlot, fig.width=5, fig.height=4, include=TRUE, echo=FALSE, message=FALSE, fig.align="center"}
+
+genres_popularity <- trainSet %>%
+  na.omit() %>% # omit missing values
+  select(movieId, yearR, genres) %>% # select columns we are interested in
+  mutate(genres = as.factor(genres)) %>% # turn genres in factors
+  group_by(yearR, genres) %>% # group data by year and genre
+  summarise(number = n()) 
+
+# Selective genres vs year of rating
+genres_popularity %>%
+  filter(yearR > 1996) %>%
+  filter(genres %in% c("Action","Adventure","Animation","Children","Comedy","Fantasy","Drama","Thriller", "Romance","War", "Sci-Fi", "Western")) %>%
+  ggplot(aes(x = yearR, y = number)) +
+  geom_line(aes(color=genres)) +
+  scale_fill_brewer(palette = "Paired") 
+
+```
+
+Now we understand more about our dataset and can use various methods to compute the RMSE. 
+
+\newpage
+
+# Results
+
+## Linear Model
+
+### Mean distribution model
+
+The first naive model approach can be used to determine the accuracy of our function to predict the star rating. We will use the train and test datasets to train this model, as this is not the final model.
+
+A model that assumes the same rating for all movies and users with all the differences explained by random variation would look like this:
+
+$$Y_{u,i} = \mu + \varepsilon_{u,i}$$
+
+Using avarage of ratings for the training set we will deterimne baseline for RMSE.
+```{r Mean, include=TRUE, echo=FALSE}
+# Mean of observed values
+mu <- mean(trainSet$rating)
+mu
+```
+Using this model, we will predict the rating against our training set.
+
+```{r BasicModel, include=TRUE, echo=FALSE}
+
+naive_rmse <- RMSE(testSet$rating,mu)
+
+results <- tibble(Method = "Mean", RMSE = naive_rmse, Tested = "testSet")
+
+results %>% kable() %>%
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive"),
+                position = "center",
+                font_size = 9,
+                full_width = FALSE) %>%
+  row_spec(0, bold = T, color = "white", background = "#D7261E")
+
+
+```
+
+We notice that the value is too high from desireable value. We shall explore other models for rating prediction. 
+
+### Movie-centered model (Adding Movie Effects)
+
+The previous model demonstrated that just an average would not satisfy our requirements. However, we know that each movie has a diverse variety of rating scores. Let's add this component to our model. This model can be described mathematically as:
+
+$$Y_{u,i} = \mu + b_i + \varepsilon_{u,i}$$
+
+The result of RSME using avarage and avarage per movie will improve our result to:
+
+```{r BiasMovie, echo=FALSE}
+
+# Define movie effect b_i
+bi <- trainSet %>% 
+  group_by(movieId) %>% 
+  summarize(b_i = mean(rating - mu))
+
+# Rating with mean + b_i  
+y_hat_bi <- mu + testSet %>% 
+  left_join(bi, by = "movieId") %>% 
+  .$b_i
+```
+
+```{r RMSE1, echo=FALSE}
+
+# Calculate the RMSE  
+results <- bind_rows(results, tibble(Method = "Mean + bi", RMSE = RMSE(testSet$rating, y_hat_bi), Tested = "testSet"))
+
+# Show the RMSE improvement  
+
+results %>% kable() %>%
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive"),
+                position = "center",
+                font_size = 9,
+                full_width = FALSE) %>%
+  row_spec(0, bold = T, color = "white", background = "#D7261E")
+
+```
+
+### Movie + User model (Adding User Effects)
+
+Let’s compute the average rating for user to examine possible effect on distribution. 
+
+```{r PlotUserEff, include=TRUE, echo=FALSE, message=FALSE, fig.align="center", fig.width=5, fig.height=4}
+
+#Plot for user effect distribution
+trainSet %>% 
+  group_by(userId) %>% 
+  summarize(b_u = mean(rating)) %>% 
+  filter(n()>=100) %>%
+  ggplot(aes(b_u)) + 
+    geom_histogram(color = "black") + 
+    ggtitle("User Effect Distribution") +
+    xlab("User Bias") +
+    ylab("Count")
+
+
+```
+
+As per [textbook](https://rafalab.github.io/dsbook/large-datasets.html#user-effects) recommendation, we notice that there is substantial variability across users as well: some users are very cranky and others love every movie. This implies that a further improvement to our model may be:
+
+$$Y_{u,i} = \mu + b_i + b_u + \varepsilon_{u,i}$$
+
+where b_u is a user-specific effect. Now if a cranky user (negative b_u) rates a great movie (positive b_i), the effects counter each other and we may be able to correctly predict that this user gave this great movie a 3 rather than a 5.
+
+We can now construct predictors and see how much the RMSE improves.
+
+```{r BiasUserEfPred, echo=FALSE, include=FALSE}
+
+# User effect (bu)
+bu <- trainSet %>% 
+  left_join(bi, by = 'movieId') %>%
+  group_by(userId) %>%
+  summarize(b_u = mean(rating - mu - b_i))
+
+# Prediction
+y_hat_bi_bu <- testSet %>% 
+  left_join(bi, by='movieId') %>%
+  left_join(bu, by='userId') %>%
+  mutate(pred = mu + b_i + b_u) %>%
+  .$pred
+```
+
+```{r RMSE2Res, include=TRUE, echo=FALSE}
+# Calculate the RMSE  
+results <- bind_rows(results, tibble(Method = "Mean + bi + bu", RMSE = RMSE(testSet$rating, y_hat_bi_bu), Tested = "testSet"))
+
+# Show the RMSE improvement  
+
+results %>% kable() %>%
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive"),
+                position = "center",
+                font_size = 9,
+                full_width = FALSE) %>%
+  row_spec(0, bold = T, color = "white", background = "#D7261E")
+
+
+```
+
+
+### Movie + User + Genre model
+
+As described in our [Methods](#methods) section, it is assumed that adding genre to the model will not make a significant impact on the RMSE performance, due to the fact that genres are now not separated into their groups, are repetitive by nature and consume many computing resources to be correctly calculated. We will not include this model unless absolutely necessary (if RMSE will not reach the desired value). 
+
+
+### Regularization
+
+As described in the [textbook](https://rafalab.github.io/dsbook/large-datasets.html#regularization), regularization must be performed in order to improve the RMSE results.
+
+> Regularization permits us to penalize large estimates that are formed using small sample sizes. It has commonalities with the Bayesian approach that shrunk predictions. The general idea behind regularization is to constrain the total variability of the effect sizes.
+
+Mathematically, it can be presented as follows:
+
+$$\hat{b}_i(\lambda) = \frac{1}{\lambda + n_i} \sum_{u=1}^{n_i} \left(Y_{u,i} - \hat{\mu}\right)$$
+
+The penalized estimates provide a large improvement over the least squares estimates. In order to find such the best $\lambda$, we will need to apply a sequence from 0 to 10 and select the best performing one (the one with the lowest RMSE value).
+
+```{r LamdasforTuning, include=TRUE, echo=FALSE}
+
+# Define a set of lambdas to tune
+lambdas <- seq(0, 10, 0.25)
+
+# Tune lambda
+rmses <- sapply(lambdas, 
+                regularization, 
+                trainset = trainSet, 
+                testset = testSet)
+``` 
+
+We can construct a plot to find out. 
+
+```{r PlotToFindOut, include=TRUE, echo=FALSE, fig.align="center", fig.width=5, fig.height=4}
+# Plot the lambda vs RMSE
+tibble(Lambda = lambdas, RMSE = rmses) %>%
+  ggplot(aes(x = Lambda, y = RMSE)) +
+    geom_point() +
+    ggtitle("Regularization") 
+
+```
+
+The best value is:
+```{r TheBestLamda, include=TRUE, echo=FALSE}
+
+# We pick the lambda that returns the lowest RMSE.
+lambda <- lambdas[which.min(rmses)]
+lambda
+```
+We will apply this parameter to our model:
+```{r BiasWithBestLamda, include=FALSE, echo=FALSE}
+# Then, we calculate the predicted rating using the best parameters 
+# achieved from regularization.  
+mu <- mean(trainSet$rating)
+
+# Movie effect (bi)
+b_i <- trainSet %>% 
+  group_by(movieId) %>%
+  summarize(b_i = sum(rating - mu)/(n()+lambda))
+
+# User effect (bu)
+b_u <- trainSet %>% 
+  left_join(b_i, by="movieId") %>%
+  group_by(userId) %>%
+  summarize(b_u = sum(rating - b_i - mu)/(n()+lambda))
+
+```
+
+
+```{r PredictResult, include=FALSE, echo=FALSE}
+# Prediction
+y_hat_reg <- testSet %>% 
+  left_join(b_i, by = "movieId") %>%
+  left_join(b_u, by = "userId") %>%
+  mutate(pred = mu + b_i + b_u) %>%
+  pull(pred)
+
+```
+
+
+```{r UpdateResultsTable, include=TRUE, echo=FALSE}
+# Update the result table
+results <- bind_rows(results, 
+                    tibble(Method = "Regularized bi and bu", 
+                   RMSE = RMSE(testSet$rating, y_hat_reg),
+                   Tested  = "testSet"))
+
+# Show the RMSE improvement  
+
+results %>% kable() %>%
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive"),
+                position = "center",
+                font_size = 9,
+                full_width = FALSE) %>%
+  row_spec(0, bold = T, color = "white", background = "#D7261E")
+
+
+```
+
+
+We can now see significant improvement and potentially meeting the requirement for the project. We should still use this model on the final validation set to approve the result. 
+
+
+## Factorization Model
+
+### Recosystem
+
+From the available literature review, we can gather that a comprehensive analysis was made to evaluate various methods for training the algorithms for recommendations. Specifically, we are referring to practical comparisons made by [Taras Hnot](https://rpubs.com/tarashnot/recommender_comparison/#algorithms-comparison), where he argues that:
+
+> There are two main categories of collaborative filtering algorithms: memory-based and model-based methods.
+
+> Memory-based methods simply memorize all ratings and make recommendations based on relation between user-item and rest of the matrix. In model-based methods predicting parametrized model firstly is needed to be fit based on rating matrix and then recommendations are issued based on fitted model.
+
+> Model-based methods, on the other hand, build parametrized models and recommend items with the highest rank, returned by model. 
+
+In his research, Taras has pointed out that "the best performance was shown by Matrix Factorization techniques with Stochastic Gradient Descend".
+
+After examining the RStudio packages as an alternative to our Linear Model: recommenderlab, SlopeOne, SVD Approximation and recosystem, the most intuitive and effortless solution was named as recosystem - a specified library which required minimum efforts to be executed. 
+
+We followed the steps described in the package documentation, and it took approximately an hour for the script to be executed. However, the results were worth waiting: 
+
+```{r RecosystemScript, include=TRUE, echo=FALSE}
+
+ set.seed(123, sample.kind = "Rounding") # This is a randomized algorithm
+ # Convert the train and test sets into recosystem input format
+ train_data <-  with(trainSet, data_memory(user_index = userId, 
+                                            item_index = movieId, 
+                                            rating     = rating))
+ test_data  <-  with(testSet,  data_memory(user_index = userId, 
+                                            item_index = movieId, 
+                                            rating     = rating))
+ 
+ # Create the model object
+ r <-  recosystem::Reco()
+ 
+ # Select the best tuning parameters
+ opts <- r$tune(train_data, opts = list(dim = c(10, 20, 30), 
+                                        lrate = c(0.1, 0.2),
+                                        costp_l2 = c(0.01, 0.1), 
+                                        costq_l2 = c(0.01, 0.1),
+                                        nthread  = 4, niter = 10))
+ 
+  # Train the algorithm  
+ r$train(train_data, opts = c(opts$min, nthread = 4, niter = 20))
+```
+
+### Results
+
+After running the recosystem package on our trainSet, we further improved our RMSE values down to **0.786**: 
+
+We updated the table with our findings. 
+
+```{r RecoSystemResults, include=TRUE, echo=FALSE}
+
+# Calculate the predicted values  
+ y_hat_reco <-  r$predict(test_data, out_memory())
+ head(y_hat_reco, 10)
+ 
+# Update the result table
+ results <- bind_rows(results, 
+                     tibble(Method = "Recosystem", 
+                    RMSE = RMSE(testSet$rating, y_hat_reco),
+                    Tested  = "testSet"))
+ 
+ # Show the RMSE improvement  
+ 
+ results %>% kable() %>%
+   kable_styling(bootstrap_options = c("striped", "condensed", "responsive"),
+                 position = "center",
+                 font_size = 9,
+                 full_width = FALSE) %>%
+   row_spec(0, bold = T, color = "white", background = "#D7261E")
+
+```
+
+As one of the requirements for the project, the validation set can only be run once. It means we have a choice which model to present as the Final and apply it to the validation set. 
+
+As Linear Model was one of the focus-points in the course, we decided to run the final validation on it, even when the results for the Factorization model have shown much improvement. 
+
+This is to exclude any possibility of potentially wrong application of this package, as our experience with Data Science thus far suggests that there are always some pitfalls awaiting for us. 
+
+
+\newpage
+
+# Validation and Final Results
+
+## Validation
+
+As was discussed in the [textbook](https://rafalab.github.io/dsbook/cross-validation.html), validation is a very important step in our project. As per requirement fo the project, we will use validation set only once - for our Linear Model.
+
+> Cross validation is based on the idea of imitating the theoretical setup above as best we can with the data we have. To do this, we have to generate a series of different random samples. There are several approaches we can use, but the general idea for all of them is to randomly generate smaller datasets that are not used for training, and instead used to estimate the true error.
+
+Validation was performed on the *validation* set using the LM prediction after regularising the data:
+
+
+```{r ValidationRes, include=TRUE, echo=FALSE}
+
+mu_edx <- mean(edx$rating)
+
+# Movie effect (bi)
+b_i_edx <- edx %>% 
+  group_by(movieId) %>%
+  summarize(b_i = sum(rating - mu_edx)/(n()+lambda))
+
+# User effect (bu)
+b_u_edx <- edx %>% 
+  left_join(b_i_edx, by="movieId") %>%
+  group_by(userId) %>%
+  summarize(b_u = sum(rating - b_i - mu_edx)/(n()+lambda))
+
+# Prediction
+y_hat_edx <- validation %>% 
+  left_join(b_i_edx, by = "movieId") %>%
+  left_join(b_u_edx, by = "userId") %>%
+  mutate(pred = mu_edx + b_i + b_u) %>%
+  pull(pred)
+
+
+# Update the result table
+results <- bind_rows(results, 
+                    tibble(Method = "Regularized EDX's bi and bu on Validation Set", 
+                   RMSE = RMSE(validation$rating, y_hat_edx),
+                   Tested  = "validation"))
+
+# Show the RMSE improvement  < 0.86490 
+
+results %>% kable() %>%
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive"),
+                position = "center",
+                font_size = 9,
+                full_width = FALSE) %>%
+  row_spec(0, bold = T, color = "white", background = "#D7261E")
+
+
+
+```
+
+## Final Results Table
+
+The below table summarizes the final results for the Models: 
+
+```{r FinalResultsTable, include=TRUE, echo=FALSE}
+# Show the final Results table RMSE improvement  < 0.86490 
+results %>% kable() %>%
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive"),
+                position = "center",
+                font_size = 9,
+                full_width = FALSE) %>%
+  row_spec(0, bold = T, color = "white", background = "#D7261E")
+```
+\newpage
+
+# Conclusion
+
+This sections summarizes our findings for the project. 
+
+## Results
+
+The final results for Linear Model after Validation and Factorization Model are shown below:
+
+```{r FinalResultsAgain, include=TRUE, echo=FALSE}
+# Show the final Results table RMSE improvement  < 0.86490 
+results %>% kable() %>%
+  kable_styling(bootstrap_options = c("striped", "condensed", "responsive"),
+                position = "center",
+                font_size = 9,
+                full_width = FALSE) %>%
+  row_spec(0, bold = T, color = "white", background = "#D7261E")
+```
+
+We met the requirements of this project as follows:
+
+- We prepared three files for the project: PDF report, R script, and RMD script;
+- In the report, we overviewed the scope of work, two models/approaches (Linear and Factorization), run the analysis on MovieLens split dataset;
+- We well-commented each code section, so it will be easier to examine it ;
+- We achieved the final RMSE value to be less than 0.86490: for Linear Model - **0.8648177**; for Factorization - **0.786**; 
+- We only used the validation set on the final Linear Model as instructed. 
+
+## Limitations
+
+This project had significant limitations summarized as follows: limited computing ability of the available machine, the quality of provided dataset (distribution of ratings for several years appeared to be too common, which might not be the case in the real datasets), recosystem settings were used "as is" and with the right tunning, the better results are expected. 
+
+## Further Research
+
+It will be beneficial to run the models on the following packages: recommenderlab, SlopeOne, SVD Approximation with various available settings, and examine how different the results are compared to Linear Model and recosystem. In addition, accuracy needs to be examined for all the above models to ensure the correct picture has been drawn. 
+
+
+***
+
+\newpage
+
+# Session Info
+
+```{r SessionInfo, include=TRUE, echo=FALSE}
+sessionInfo()
+```
